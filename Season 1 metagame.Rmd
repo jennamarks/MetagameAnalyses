@@ -1,0 +1,88 @@
+---
+title: "Season 1 Metagame"
+author: "Jenna Marks"
+output: html_document
+        css: slides/style.css
+        toc: true
+        toc_depth: 1
+        toc_float: true
+        df_print: paged
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Packages
+
+```{r}
+library(tidyverse)
+library(skimr)
+library(DBI)
+library(odbc)
+library(keyring)
+library(amplifyReadR)
+library(lubridate)
+snowflake <- dbConnect(odbc::odbc(),
+                       Driver  = "/opt/snowflake/snowflakeodbc/lib/universal/libSnowflake.dylib",
+                       Server   = "eb65335.us-east-1.snowflakecomputing.com",
+                       Port     = 443,
+                       Database = "dev",
+                       Warehouse = 'looker_wh',
+                       UID = keyring::key_list('dw')$username,
+                       PWD = keyring::key_get('dw'))
+```
+
+## Import Session Data for Grade K
+Filter for Grade K and 2018-2019 schoolyear
+Variables I want: User ID, Session ID, Session length, Session Date, Student Placement Point, Student DIBELS category, Student grade, Student season
+```{r}
+#create a user table of all users
+df_users <- tbl(snowflake, sql(get_ar_users())) %>% 
+  collect()
+
+#create a user table of just Kindergarten users
+df_gK_users <- df_users %>%
+  filter(grade_sid == 2, year_sid == 17)
+
+#pull session data for Kindergarten users in 18-19
+df_session_dat <- tbl(snowflake, sql(get_session_data(user_ids = df_gK_users$user_id))) %>%
+  collect()
+  
+df_session_dat <- 
+  df_session_dat %>% 
+  filter(year_sid == 17, 
+         grade_level == "Kindergarten")
+
+#create week and year columns
+df_session_dat1 <- 
+  df_session_dat %>% 
+  mutate(week = week(ymd_hms(play_start)), 
+         year = year(ymd_hms(play_start)), 
+         week_year = paste(week, year, sep = "-"))
+```
+## ANALYSIS TIME
+
+```{r}
+# What is the average session length?
+df_session_dat1 %>% 
+  summarize(mean_session_length = mean(session_length, na.rm = TRUE),
+            median_session_length = median(session_length, na.rm = TRUE),
+            SD_session_length = sd(session_length, na.rm = TRUE),
+            min_session_length = min(session_length, na.rm = TRUE),
+            max_session_length = max(session_length, na.rm = TRUE))
+
+#QUESTION - how can I make a student level table, where we see average session length and then also a column IF 80% of sessions are above recommended time?
+
+# What is the average number of sessions per week per student?
+
+
+# What is the average number of sessions per year per students?
+df_student_level_sess <-
+  df_session_dat1 %>% 
+    group_by(user_id) %>% 
+    summarize(total_sessions = n(app_session_id))
+
+df_student_level_sess %>% 
+    summarize(mean_total_sessions = mean(total_sessions, na.rm = TRUE))
+```
